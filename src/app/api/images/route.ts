@@ -5,6 +5,19 @@ import { URL } from 'url';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium-min';
 
+const isCloudflareBlock = (html: string) => {
+    const lower = html.toLowerCase();
+    const hasCF = lower.includes('cloudflare');
+    const hasChallenge = lower.includes('cf-browser-verification') ||
+        lower.includes('checking your browser') ||
+        lower.includes('ray id:');
+    const hasImg = lower.includes('<img');
+    const hasTitle = lower.includes('<title>just a moment') || lower.includes('<title>attention required');
+
+    // Cloudflare blocks often have CF strings and NO images, or a specific challenge title/text
+    return hasChallenge || hasTitle || (hasCF && !hasImg);
+};
+
 async function fetchWithPuppeteer(url: string) {
     console.log(`[API] Starting Puppeteer fallback for ${url}`);
 
@@ -50,30 +63,22 @@ async function fetchWithPuppeteer(url: string) {
 
         // Cloudflare challenge wait loop
         let attempts = 0;
-        let html = '';
-        while (attempts < 5) {
-            html = await page.content();
-            const lowerHtml = html.toLowerCase();
-
-            // Typical signs of a Cloudflare challenge page
-            const isChallenge = lowerHtml.includes('cf-browser-verification') ||
-                lowerHtml.includes('checking your browser') ||
-                lowerHtml.includes('ray id:') ||
-                (lowerHtml.includes('cloudflare') && lowerHtml.includes('hcaptcha'));
-
-            if (!isChallenge && html.length > 5000) {
+        let htmlContent = '';
+        while (attempts < 3) {
+            htmlContent = await page.content();
+            if (!isCloudflareBlock(htmlContent) && htmlContent.length > 5000) {
                 console.log(`[API] Passed Cloudflare challenge after ${attempts} waits.`);
                 break;
             }
 
-            console.log(`[API] Still on challenge page (Attempt ${attempts}). Waiting...`);
+            console.log(`[API] Still on challenge page (Attempt ${attempts}). Waiting 2s...`);
             await new Promise(r => setTimeout(r, 2000));
             attempts++;
         }
 
-        // Final scroll to trigger lazy load
-        await page.evaluate(() => window.scrollBy(0, 1000));
-        await new Promise(r => setTimeout(r, 1000));
+        // Quick scroll
+        await page.evaluate(() => window.scrollBy(0, 500));
+        await new Promise(r => setTimeout(r, 500));
 
         return await page.content();
     } finally {
@@ -110,6 +115,10 @@ export async function POST(request: Request) {
                 },
             });
             html = response.data;
+            if (isCloudflareBlock(html)) {
+                console.log('[API] Detected Cloudflare challenge in Axios response. Retrying with Puppeteer...');
+                throw { response: { status: 403 } };
+            }
             console.log(`[API] Axios fetched successfully. HTML length: ${html.length}`);
         } catch (error: any) {
             if (error.response?.status === 403) {
@@ -214,7 +223,8 @@ export async function POST(request: Request) {
                 totalFound: imageUrlList.length,
                 htmlLength: html.length,
                 isCloudflare: html.toLowerCase().includes('cloudflare'),
-                sampleUrls: imageUrlList.slice(0, 3).map(i => i.url)
+                title: $('title').text().trim(),
+                hasImg: html.includes('<img')
             }
         });
 

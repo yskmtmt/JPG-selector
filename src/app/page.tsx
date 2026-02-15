@@ -93,9 +93,11 @@ export default function Home() {
               <div className="p-4 bg-gray-100 border border-gray-200 rounded-lg text-[10px] font-mono text-gray-600 overflow-auto max-h-40">
                 <p className="font-bold mb-1 border-b border-gray-200 pb-1 text-gray-700">Diagnostic Info (Diagnostics):</p>
                 <div className="space-y-0.5">
-                  <p>Found: {debugInfo.totalFound || 0} imgs</p>
-                  <p>HTML: {debugInfo.htmlLength || 0} bytes</p>
-                  <p>Cloudflare: {debugInfo.isCloudflare ? 'YES' : 'No'}</p>
+                  <p>Found: {debugInfo.totalFound || debugInfo.total || 0} imgs</p>
+                  <p>HTML: {debugInfo.htmlLength || debugInfo.htmlLen || 0} bytes</p>
+                  <p>Cloudflare: {debugInfo.isCloudflare || debugInfo.isCF ? 'YES' : 'No'}</p>
+                  <p>Title: {debugInfo.title || 'N/A'}</p>
+                  <p>Has Images: {debugInfo.hasImg ? 'YES' : 'No'}</p>
                   {debugInfo.error && <p className="text-red-500">Error: {debugInfo.error}</p>}
                   {debugInfo.sampleUrls?.length > 0 && (
                     <div className="mt-1">

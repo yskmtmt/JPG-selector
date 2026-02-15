@@ -50,6 +50,7 @@ export async function POST(request: Request) {
 
         // Fetch HTML with comprehensive headers
         let html: string;
+        console.log(`[API] Fetching URL: ${url}`);
         try {
             const response = await axios.get(url, {
                 timeout: 10000,
@@ -61,11 +62,19 @@ export async function POST(request: Request) {
                 },
             });
             html = response.data;
+            console.log(`[API] Axios fetched successfully. HTML length: ${html.length}`);
         } catch (error: any) {
             if (error.response?.status === 403) {
-                console.log('Got 403 with Axios, falling back to Puppeteer...');
-                html = await fetchWithPuppeteer(url);
+                console.log('[API] Got 403 with Axios, falling back to Puppeteer...');
+                try {
+                    html = await fetchWithPuppeteer(url);
+                    console.log(`[API] Puppeteer fetched successfully. HTML length: ${html.length}`);
+                } catch (puppeteerError: any) {
+                    console.error(`[API] Puppeteer error: ${puppeteerError.message}`);
+                    throw puppeteerError;
+                }
             } else {
+                console.error(`[API] Axios error (${error.response?.status}): ${error.message}`);
                 throw error;
             }
         }
@@ -73,14 +82,22 @@ export async function POST(request: Request) {
         const $ = cheerio.load(html);
         const imageUrlList: { url: string; number: number }[] = [];
 
-        const processUrl = (link: string | undefined) => {
+        console.log(`[API] Analyzing tags: a=${$('a').length}, img=${$('img').length}`);
+
+        const processUrl = (link: string | undefined, sourceTag: string) => {
             if (!link) return;
             const lower = link.toLowerCase();
 
-            // Match JPG/JPEG
-            if (lower.includes('.jpg') || lower.includes('.jpeg')) {
+            // Match JPG/JPEG or any link in an <img> tag (often images)
+            const isJpg = lower.includes('.jpg') || lower.includes('.jpeg');
+            const likelyImage = sourceTag === 'img' || isJpg;
+
+            if (likelyImage) {
                 try {
                     const absoluteUrl = new URL(link, url).toString();
+
+                    // Basic filter to avoid common non-image paths on Wikipedia etc.
+                    if (absoluteUrl.toLowerCase().includes('/wiki/file:')) return;
 
                     // Extract numerical suffix (e.g., image01.jpg -> 1)
                     const fileName = absoluteUrl.split('/').pop() || '';
@@ -91,25 +108,37 @@ export async function POST(request: Request) {
                     if (!imageUrlList.find(item => item.url === absoluteUrl)) {
                         imageUrlList.push({ url: absoluteUrl, number: num });
                     }
-                } catch {
-                    // Ignore invalid URLs
+                } catch (e: any) {
+                    // console.warn(`[API] Failed to parse URL: ${link}`, e.message);
                 }
             }
         };
 
         $('a').each((_, element) => {
-            processUrl($(element).attr('href'));
+            processUrl($(element).attr('href'), 'a');
         });
 
         $('img').each((_, element) => {
-            processUrl($(element).attr('src'));
+            processUrl($(element).attr('src'), 'img');
         });
+
+        console.log(`[API] Found ${imageUrlList.length} unique candidate URLs.`);
+
+        if (imageUrlList.length === 0) {
+            console.log('[API] No images found. Checking if HTML contains common image extensions in text...');
+            // Simple check to see if the page even mentions jpgs
+            if (!html.toLowerCase().includes('.jpg') && !html.toLowerCase().includes('.jpeg')) {
+                console.log('[API] HTML does not seem to contain any JPG/JPEG links in raw text either.');
+            }
+        }
 
         // Sort by extracted number (ascending)
         imageUrlList.sort((a, b) => a.number - b.number);
 
-        // Limit results to stay within Vercel timeout limits
-        const targetImages = imageUrlList.slice(0, 20);
+        // Limit results
+        const maxResults = 30;
+        const targetImages = imageUrlList.slice(0, maxResults);
+        console.log(`[API] Processing top ${targetImages.length} images for sizes.`);
 
         // Fetch sizes in parallel with a limit
         const imagesWithSizes = await Promise.all(
@@ -117,30 +146,37 @@ export async function POST(request: Request) {
                 let size = 0;
                 try {
                     const res = await axios.head(item.url, {
-                        timeout: 5000,
+                        timeout: 3000,
                         headers: {
                             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                         }
                     });
                     size = parseInt(res.headers['content-length'] || '0', 10);
-                } catch (e) {
-                    // Fallback to 0 if HEAD fails
+                } catch (e: any) {
+                    // HEAD failed, try small GET for headers if size is priority
                 }
                 return { url: item.url, size };
             })
         );
 
-        return NextResponse.json({ images: imagesWithSizes });
+        console.log(`[API] Success. Returning ${imagesWithSizes.length} images.`);
+        return NextResponse.json({
+            images: imagesWithSizes,
+            debug: {
+                totalFound: imageUrlList.length,
+                htmlLength: html.length
+            }
+        });
 
     } catch (error: any) {
-        console.error('API Error:', error.message);
+        console.error('[API] Fatal Error:', error.message);
         const status = error.response?.status;
         if (status === 403) {
             return NextResponse.json({
                 error: 'Access Forbidden (403). The website is blocking automated access.'
             }, { status: 403 });
         }
-        return NextResponse.json({ error: 'Failed' + error.message }, { status: 500 });
+        return NextResponse.json({ error: 'Failed: ' + error.message }, { status: 500 });
     }
 }
 

@@ -6,11 +6,14 @@ import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium-min';
 
 async function fetchWithPuppeteer(url: string) {
-    console.log(`Starting Puppeteer fallback for ${url}`);
+    console.log(`[API] Starting Puppeteer fallback for ${url}`);
 
-    // Vercel compatible browser launch
     const browser = await puppeteer.launch({
-        args: chromium.args,
+        args: [
+            ...chromium.args,
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process',
+        ],
         defaultViewport: (chromium as any).defaultViewport || { width: 1280, height: 800 },
         executablePath: await chromium.executablePath(
             'https://github.com/sparticuz/chromium/releases/download/v121.0.0/chromium-v121.0.0-pack.tar'
@@ -22,10 +25,26 @@ async function fetchWithPuppeteer(url: string) {
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
 
-        // Navigate to the URL
+        // Blocking some resources to speed up but keeping images/scripts
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            if (['font', 'media'].includes(req.resourceType())) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+
+        console.log(`[API] Puppeteer navigating...`);
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Get the page content
+        // Small wait for JS content
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Scroll once to trigger lazy load
+        await page.evaluate(() => window.scrollBy(0, 800));
+        await new Promise(r => setTimeout(r, 1000));
+
         const html = await page.content();
         return html;
     } finally {
@@ -84,42 +103,42 @@ export async function POST(request: Request) {
 
         console.log(`[API] Analyzing tags: a=${$('a').length}, img=${$('img').length}`);
 
-        const processUrl = (link: string | undefined, sourceTag: string) => {
-            if (!link) return;
-            const lower = link.toLowerCase();
+        const processElement = (el: cheerio.Element) => {
+            const attrs = ['href', 'src', 'data-src', 'data-lazy-src', 'data-original', 'data-lazy', 'data-srcset'];
 
-            // Match JPG/JPEG or any link in an <img> tag (often images)
-            const isJpg = lower.includes('.jpg') || lower.includes('.jpeg');
-            const likelyImage = sourceTag === 'img' || isJpg;
+            for (const attr of attrs) {
+                let link = $(el).attr(attr);
+                if (!link) continue;
 
-            if (likelyImage) {
-                try {
-                    const absoluteUrl = new URL(link, url).toString();
+                // Clean up comma-separated srcset
+                if (attr === 'data-srcset' || attr === 'srcset') {
+                    link = link.split(',')[0].split(' ')[0];
+                }
 
-                    // Basic filter to avoid common non-image paths on Wikipedia etc.
-                    if (absoluteUrl.toLowerCase().includes('/wiki/file:')) return;
+                const lower = link.toLowerCase();
+                const isJpg = lower.includes('.jpg') || lower.includes('.jpeg');
+                const isImgTag = el.type === 'tag' && el.tagName === 'img';
+                const likelyImage = isImgTag || isJpg;
 
-                    // Extract numerical suffix (e.g., image01.jpg -> 1)
-                    const fileName = absoluteUrl.split('/').pop() || '';
-                    const match = fileName.match(/(\d+)\.(?:jpg|jpeg)/i);
-                    const num = match ? parseInt(match[1], 10) : 999999;
+                if (likelyImage) {
+                    try {
+                        const absoluteUrl = new URL(link, url).toString();
+                        if (absoluteUrl.toLowerCase().includes('/wiki/file:')) continue;
 
-                    // Avoid duplicates
-                    if (!imageUrlList.find(item => item.url === absoluteUrl)) {
-                        imageUrlList.push({ url: absoluteUrl, number: num });
-                    }
-                } catch (e: any) {
-                    // console.warn(`[API] Failed to parse URL: ${link}`, e.message);
+                        const fileName = absoluteUrl.split('/').pop() || '';
+                        const match = fileName.match(/(\d+)\.(?:jpg|jpeg)/i);
+                        const num = match ? parseInt(match[1], 10) : 999999;
+
+                        if (!imageUrlList.find(item => item.url === absoluteUrl)) {
+                            imageUrlList.push({ url: absoluteUrl, number: num });
+                        }
+                    } catch { }
                 }
             }
         };
 
-        $('a').each((_, element) => {
-            processUrl($(element).attr('href'), 'a');
-        });
-
-        $('img').each((_, element) => {
-            processUrl($(element).attr('src'), 'img');
+        $('a, img').each((_, element) => {
+            processElement(element as cheerio.Element);
         });
 
         console.log(`[API] Found ${imageUrlList.length} unique candidate URLs.`);
@@ -164,7 +183,8 @@ export async function POST(request: Request) {
             images: imagesWithSizes,
             debug: {
                 totalFound: imageUrlList.length,
-                htmlLength: html.length
+                htmlLength: html.length,
+                firstItems: targetImages.slice(0, 3).map(i => i.url)
             }
         });
 

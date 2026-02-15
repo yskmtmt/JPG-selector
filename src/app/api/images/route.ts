@@ -3,6 +3,29 @@ import { NextResponse } from 'next/server';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { URL } from 'url';
+import puppeteer from 'puppeteer';
+
+async function fetchWithPuppeteer(url: string) {
+    console.log(`Starting Puppeteer fallback for ${url}`);
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    try {
+        const page = await browser.newPage();
+        await page.setViewport({ width: 1280, height: 800 });
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
+
+        // Navigate to the URL
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+        // Get the page content
+        const html = await page.content();
+        return html;
+    } finally {
+        await browser.close();
+    }
+}
 
 export async function POST(request: Request) {
     try {
@@ -20,21 +43,31 @@ export async function POST(request: Request) {
         }
 
         // Fetch HTML with comprehensive headers to bypass anti-bot blocks
-        const response = await axios.get(url, {
-            timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache',
-                'Upgrade-Insecure-Requests': '1',
-                'Referer': url
-            },
-        });
+        let html: string;
+        try {
+            const response = await axios.get(url, {
+                timeout: 10000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Referer': url
+                },
+            });
+            html = response.data;
+        } catch (error: any) {
+            if (error.response?.status === 403) {
+                console.log('Got 403 with Axios, falling back to Puppeteer...');
+                html = await fetchWithPuppeteer(url);
+            } else {
+                throw error;
+            }
+        }
 
-        const html = response.data;
         const $ = cheerio.load(html);
         // Extract and filter links
         const imgList: { url: string; number: number }[] = [];

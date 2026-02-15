@@ -40,12 +40,30 @@ async function fetchWithPuppeteer(url: string) {
     try {
         const page = await browser.newPage();
 
-        // Extra stealth to avoid being detected as a bot
+        // Advanced stealth to mimic a real human browser
         await page.evaluateOnNewDocument(() => {
+            // @ts-ignore
             Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            // @ts-ignore
             Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
             // @ts-ignore
-            navigator.plugins.length = 5;
+            Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+            // @ts-ignore
+            Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+            // @ts-ignore
+            Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 4 });
+            // @ts-ignore
+            navigator.plugins.length = 4;
+            // @ts-ignore
+            window.chrome = { runtime: {} };
+
+            // WebGL detection bypass
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function (parameter) {
+                if (parameter === 37445) return 'Google Inc. (Intel)';
+                if (parameter === 37446) return 'ANGLE (Intel, Intel(R) UHD Graphics (0x00009BC4) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+                return getParameter.apply(this, [parameter]);
+            };
         });
 
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
@@ -64,19 +82,24 @@ async function fetchWithPuppeteer(url: string) {
         // Use 'domcontentloaded' to get in fast, then wait for CF to settle
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // Cloudflare challenge wait loop
+        // Cloudflare challenge wait loop (Optimized for Vercel 10s timeout)
         let attempts = 0;
         let htmlContent = '';
-        while (attempts < 5) {
+        while (attempts < 3) {
             htmlContent = await page.content();
+
             if (!isCloudflareBlock(htmlContent) && htmlContent.length > 5000) {
                 console.log(`[API] Passed Cloudflare challenge after ${attempts} waits.`);
                 break;
             }
 
             console.log(`[API] Still on challenge (Attempt ${attempts}). Waiting 2s...`);
-            // Small mouse move to satisfy some challenge heuristics
-            try { await page.mouse.move(Math.random() * 100, Math.random() * 100); } catch { }
+
+            // Simulating user activity to trigger CF resolution
+            try {
+                await page.mouse.move(Math.random() * 200, Math.random() * 200);
+                await page.evaluate(() => window.scrollBy(0, 50));
+            } catch { }
 
             await new Promise(r => setTimeout(r, 2000));
             attempts++;

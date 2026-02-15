@@ -13,6 +13,9 @@ async function fetchWithPuppeteer(url: string) {
             ...chromium.args,
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-blink-features=AutomationControlled',
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
         ],
         defaultViewport: (chromium as any).defaultViewport || { width: 1280, height: 800 },
         executablePath: await chromium.executablePath(
@@ -23,6 +26,12 @@ async function fetchWithPuppeteer(url: string) {
 
     try {
         const page = await browser.newPage();
+
+        // Extra stealth to avoid being detected as a bot
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        });
+
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
 
         // Blocking some resources to speed up but keeping images/scripts
@@ -36,17 +45,37 @@ async function fetchWithPuppeteer(url: string) {
         });
 
         console.log(`[API] Puppeteer navigating...`);
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        // Use 'domcontentloaded' to get in fast, then wait for CF to settle
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // Small wait for JS content
-        await new Promise(r => setTimeout(r, 2000));
+        // Cloudflare challenge wait loop
+        let attempts = 0;
+        let html = '';
+        while (attempts < 5) {
+            html = await page.content();
+            const lowerHtml = html.toLowerCase();
 
-        // Scroll once to trigger lazy load
-        await page.evaluate(() => window.scrollBy(0, 800));
+            // Typical signs of a Cloudflare challenge page
+            const isChallenge = lowerHtml.includes('cf-browser-verification') ||
+                lowerHtml.includes('checking your browser') ||
+                lowerHtml.includes('ray id:') ||
+                (lowerHtml.includes('cloudflare') && lowerHtml.includes('hcaptcha'));
+
+            if (!isChallenge && html.length > 5000) {
+                console.log(`[API] Passed Cloudflare challenge after ${attempts} waits.`);
+                break;
+            }
+
+            console.log(`[API] Still on challenge page (Attempt ${attempts}). Waiting...`);
+            await new Promise(r => setTimeout(r, 2000));
+            attempts++;
+        }
+
+        // Final scroll to trigger lazy load
+        await page.evaluate(() => window.scrollBy(0, 1000));
         await new Promise(r => setTimeout(r, 1000));
 
-        const html = await page.content();
-        return html;
+        return await page.content();
     } finally {
         await browser.close();
     }

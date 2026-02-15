@@ -43,6 +43,9 @@ async function fetchWithPuppeteer(url: string) {
         // Extra stealth to avoid being detected as a bot
         await page.evaluateOnNewDocument(() => {
             Object.defineProperty(navigator, 'webdriver', { get: () => false });
+            Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
+            // @ts-ignore
+            navigator.plugins.length = 5;
         });
 
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
@@ -64,16 +67,23 @@ async function fetchWithPuppeteer(url: string) {
         // Cloudflare challenge wait loop
         let attempts = 0;
         let htmlContent = '';
-        while (attempts < 3) {
+        while (attempts < 5) {
             htmlContent = await page.content();
             if (!isCloudflareBlock(htmlContent) && htmlContent.length > 5000) {
                 console.log(`[API] Passed Cloudflare challenge after ${attempts} waits.`);
                 break;
             }
 
-            console.log(`[API] Still on challenge page (Attempt ${attempts}). Waiting 2s...`);
+            console.log(`[API] Still on challenge (Attempt ${attempts}). Waiting 2s...`);
+            // Small mouse move to satisfy some challenge heuristics
+            try { await page.mouse.move(Math.random() * 100, Math.random() * 100); } catch { }
+
             await new Promise(r => setTimeout(r, 2000));
             attempts++;
+        }
+
+        if (isCloudflareBlock(htmlContent)) {
+            throw new Error('Cloudflare bypass failed on Vercel environment.');
         }
 
         // Quick scroll

@@ -1,65 +1,113 @@
-import Image from "next/image";
+
+'use client';
+
+import { useState } from 'react';
+import axios from 'axios';
+
+type ImageResult = {
+  url: string;
+  size: number;
+};
 
 export default function Home() {
+  const [url, setUrl] = useState('');
+  const [images, setImages] = useState<ImageResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setImages([]);
+
+    try {
+      const response = await axios.post('/api/images', { url });
+      setImages(response.data.images);
+      if (response.data.images.length === 0) {
+        setError('No JPG images found or unable to determine sizes.');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to fetch images. Please check the URL and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="min-h-screen p-8 bg-gray-50 text-gray-900 font-sans">
+      <div className="max-w-2xl mx-auto">
+        <h1 className="text-3xl font-bold mb-8 text-center text-blue-600">JPG Downloader</h1>
+
+        <form onSubmit={handleSubmit} className="mb-8 flex gap-4">
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="Enter URL to scrape (e.g., https://example.com)"
+            required
+            className="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-blue-300 transition-colors shadow-sm"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            {loading ? 'Scanning...' : 'Scan'}
+          </button>
+        </form>
+
+        {error && (
+          <div className="p-4 mb-6 bg-red-100 text-red-700 border border-red-200 rounded-lg">
+            {error}
+          </div>
+        )}
+
+        {images.length > 0 && (
+          <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+            <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-gray-700">Top 10 Largest Images</h2>
+              <span className="text-sm text-gray-500">{images.length} found</span>
+            </div>
+            <ul className="divide-y divide-gray-100">
+              {images.map((img, index) => (
+                <li key={index} className="p-4 hover:bg-gray-50 transition-colors flex items-center justify-between group">
+                  <div className="flex-1 min-w-0 mr-4">
+                    <a
+                      href={img.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 font-medium truncate block"
+                      title={img.url}
+                    >
+                      {img.url}
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-gray-500 whitespace-nowrap">
+                    <span className="font-mono bg-gray-100 px-2 py-1 rounded">{formatSize(img.size)}</span>
+                    <a
+                      href={img.url}
+                      download
+                      className="text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Open"
+                    >
+                      Open
+                    </a>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }

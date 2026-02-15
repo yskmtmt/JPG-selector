@@ -19,11 +19,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
         }
 
-        // Fetch HTML
+        // Fetch HTML with comprehensive headers to bypass anti-bot blocks
         const response = await axios.get(url, {
             timeout: 10000,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Upgrade-Insecure-Requests': '1',
+                'Referer': url
             },
         });
 
@@ -80,6 +87,12 @@ export async function POST(request: Request) {
 
     } catch (error: any) {
         console.error('API Error:', error.message);
+        const status = error.response?.status;
+        if (status === 403) {
+            return NextResponse.json({
+                error: 'Access Forbidden (403). The website is blocking automated access. Try another URL or use a proxy.'
+            }, { status: 403 });
+        }
         return NextResponse.json({ error: 'Failed to process request: ' + error.message }, { status: 500 });
     }
 }

@@ -48,14 +48,26 @@ export default function Home() {
         <h1 className="text-3xl font-bold mb-8 text-center text-blue-600">JPG Downloader</h1>
 
         <form onSubmit={handleSubmit} className="mb-8 flex gap-4">
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Enter URL to scrape (e.g., https://example.com)"
-            required
-            className="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-          />
+          <div className="flex-1 relative">
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Enter URL to scrape (e.g., https://example.com)"
+              required
+              className="w-full p-3 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+            />
+            {url && (
+              <button
+                type="button"
+                onClick={() => setUrl('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                title="Clear input"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <button
             type="submit"
             disabled={loading}
@@ -74,8 +86,8 @@ export default function Home() {
         {images.length > 0 && (
           <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
             <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-gray-700">Top 10 Largest Images</h2>
-              <span className="text-sm text-gray-500">{images.length} found</span>
+              <h2 className="text-lg font-semibold text-gray-700">Images (Numerical Order)</h2>
+              <span className="text-sm text-gray-500">{images.length} / 15 found</span>
             </div>
             <ul className="divide-y divide-gray-100">
               {images.map((img, index) => (
@@ -92,7 +104,6 @@ export default function Home() {
                     </a>
                   </div>
                   <div className="flex items-center gap-4 text-sm text-gray-500 whitespace-nowrap">
-                    <span className="font-mono bg-gray-100 px-2 py-1 rounded">{formatSize(img.size)}</span>
                     <a
                       href={img.url}
                       download

@@ -29,20 +29,28 @@ export async function POST(request: Request) {
 
         const html = response.data;
         const $ = cheerio.load(html);
-        const imageUrls = new Set<string>();
+        // Extract and filter links
+        const imgList: { url: string; number: number }[] = [];
 
-        // Extract links
         const processUrl = (link: string | undefined) => {
             if (!link) return;
             const lower = link.toLowerCase();
 
-            // Filter out wiki pages or other non-image pages that might have .jpg in URL
-            if (lower.includes('/wiki/')) return;
-
+            // Filter for jpg/jpeg
             if (lower.includes('.jpg') || lower.includes('.jpeg')) {
                 try {
                     const absoluteUrl = new URL(link, url).toString();
-                    imageUrls.add(absoluteUrl);
+                    const fileName = absoluteUrl.split('/').pop() || '';
+                    
+                    // Match last 2 digits before extension (e.g., image01.jpg)
+                    const match = fileName.match(/(\d{2})\.(?:jpg|jpeg)$/i);
+                    if (match) {
+                        const num = parseInt(match[1], 10);
+                        // Avoid duplicates
+                        if (!imgList.some(item => item.url === absoluteUrl)) {
+                            imgList.push({ url: absoluteUrl, number: num });
+                        }
+                    }
                 } catch {
                     // Ignore invalid URLs
                 }
@@ -57,41 +65,18 @@ export async function POST(request: Request) {
             processUrl($(element).attr('src'));
         });
 
-        console.log(`Found ${imageUrls.size} candidate JPGs.`);
+        console.log(`Found ${imgList.size} candidate JPGs with 2-digit suffix.`);
 
-        const imagesWithSizes: { url: string; size: number }[] = [];
+        // Sort by the extracted number (ascending)
+        imgList.sort((a, b) => a.number - b.number);
 
-        // Fetch sizes
-        const sizePromises = Array.from(imageUrls).map(async (imageUrl) => {
-            try {
-                const headResponse = await axios.head(imageUrl, {
-                    timeout: 5000,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                        'Referer': url
-                    }
-                });
-                const contentLength = headResponse.headers['content-length'];
-                if (contentLength) {
-                    const size = parseInt(contentLength, 10);
-                    if (!isNaN(size)) {
-                        imagesWithSizes.push({ url: imageUrl, size });
-                    }
-                }
-            } catch {
-                // Prepare to ignore image if HEAD fails
-            }
-        });
+        // Limit to 15
+        const top15 = imgList.slice(0, 15).map(item => ({
+            url: item.url,
+            size: 0 // Size is no longer the priority, but keeping the structure
+        }));
 
-        await Promise.all(sizePromises);
-
-        // Sort by size (descending)
-        imagesWithSizes.sort((a, b) => b.size - a.size);
-
-        // Top 10
-        const top10 = imagesWithSizes.slice(0, 10);
-
-        return NextResponse.json({ images: top10 });
+        return NextResponse.json({ images: top15 });
 
     } catch (error: any) {
         console.error('API Error:', error.message);

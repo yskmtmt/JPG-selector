@@ -1,19 +1,25 @@
-
 import { NextResponse } from 'next/server';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { URL } from 'url';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium-min';
 
 async function fetchWithPuppeteer(url: string) {
     console.log(`Starting Puppeteer fallback for ${url}`);
+
+    // Vercel compatible browser launch
     const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: chromium.args,
+        defaultViewport: (chromium as any).defaultViewport || { width: 1280, height: 800 },
+        executablePath: await chromium.executablePath(
+            'https://github.com/sparticuz/chromium/releases/download/v121.0.0/chromium-v121.0.0-pack.tar'
+        ),
+        headless: (chromium as any).headless || true,
     });
+
     try {
         const page = await browser.newPage();
-        await page.setViewport({ width: 1280, height: 800 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
 
         // Navigate to the URL
@@ -42,7 +48,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
         }
 
-        // Fetch HTML with comprehensive headers to bypass anti-bot blocks
+        // Fetch HTML with comprehensive headers
         let html: string;
         try {
             const response = await axios.get(url, {
@@ -51,10 +57,6 @@ export async function POST(request: Request) {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
                     'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache',
-                    'Upgrade-Insecure-Requests': '1',
                     'Referer': url
                 },
             });
@@ -69,27 +71,25 @@ export async function POST(request: Request) {
         }
 
         const $ = cheerio.load(html);
-        // Extract and filter links
-        const imgList: { url: string; number: number }[] = [];
+        const imageUrlList: { url: string; number: number }[] = [];
 
         const processUrl = (link: string | undefined) => {
             if (!link) return;
             const lower = link.toLowerCase();
 
-            // Filter for jpg/jpeg
+            // Match JPG/JPEG
             if (lower.includes('.jpg') || lower.includes('.jpeg')) {
                 try {
                     const absoluteUrl = new URL(link, url).toString();
-                    const fileName = absoluteUrl.split('/').pop() || '';
 
-                    // Match last 2 digits before extension (e.g., image01.jpg)
-                    const match = fileName.match(/(\d{2})\.(?:jpg|jpeg)$/i);
-                    if (match) {
-                        const num = parseInt(match[1], 10);
-                        // Avoid duplicates
-                        if (!imgList.some(item => item.url === absoluteUrl)) {
-                            imgList.push({ url: absoluteUrl, number: num });
-                        }
+                    // Extract numerical suffix (e.g., image01.jpg -> 1)
+                    const fileName = absoluteUrl.split('/').pop() || '';
+                    const match = fileName.match(/(\d+)\.(?:jpg|jpeg)/i);
+                    const num = match ? parseInt(match[1], 10) : 999999; // Default to big number if no digit found
+
+                    // Avoid duplicates
+                    if (!imageUrlList.find(item => item.url === absoluteUrl)) {
+                        imageUrlList.push({ url: absoluteUrl, number: num });
                     }
                 } catch {
                     // Ignore invalid URLs
@@ -105,27 +105,25 @@ export async function POST(request: Request) {
             processUrl($(element).attr('src'));
         });
 
-        console.log(`Found ${imgList.length} candidate JPGs with 2-digit suffix.`);
+        // Sort by extracted number (ascending)
+        imageUrlList.sort((a, b) => a.number - b.number);
 
-        // Sort by the extracted number (ascending)
-        imgList.sort((a, b) => a.number - b.number);
-
-        // Limit to 15
-        const top15 = imgList.slice(0, 15).map(item => ({
+        const images = imageUrlList.map(item => ({
             url: item.url,
-            size: 0 // Size is no longer the priority, but keeping the structure
+            size: 0 // Size no longer priority, but keeping object shape
         }));
 
-        return NextResponse.json({ images: top15 });
+        return NextResponse.json({ images });
 
     } catch (error: any) {
         console.error('API Error:', error.message);
         const status = error.response?.status;
         if (status === 403) {
             return NextResponse.json({
-                error: 'Access Forbidden (403). The website is blocking automated access. Try another URL or use a proxy.'
+                error: 'Access Forbidden (403). The website is blocking automated access.'
             }, { status: 403 });
         }
-        return NextResponse.json({ error: 'Failed to process request: ' + error.message }, { status: 500 });
+        return NextResponse.json({ error: 'Failed' + error.message }, { status: 500 });
     }
 }
+

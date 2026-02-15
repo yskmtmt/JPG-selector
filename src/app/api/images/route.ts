@@ -83,7 +83,10 @@ async function fetchWithPuppeteer(url: string) {
         }
 
         if (isCloudflareBlock(htmlContent)) {
-            throw new Error('Cloudflare bypass failed on Vercel environment.');
+            const err: any = new Error('Cloudflare bypass failed on Vercel environment.');
+            err.htmlLen = htmlContent.length;
+            err.title = htmlContent.match(/<title>(.*?)<\/title>/i)?.[1] || 'N/A';
+            throw err;
         }
 
         // Quick scroll
@@ -241,10 +244,12 @@ export async function POST(request: Request) {
     } catch (error: any) {
         console.error('[API] Fatal Error:', error.message);
         return NextResponse.json({
-            error: error.response?.status === 403 ? 'Access Forbidden (403)' : 'Failed: ' + error.message,
+            error: error.message.includes('Cloudflare') ? 'Cloudflare Block/Timeout (Vercel)' : 'Failed: ' + error.message,
             debug: {
                 error: error.message,
-                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+                htmlLen: error.htmlLen || 0,
+                title: error.title || 'Error',
+                isCF: true
             }
         }, { status: 500 });
     }

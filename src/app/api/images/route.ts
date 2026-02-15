@@ -71,7 +71,7 @@ async function fetchWithPuppeteer(url: string) {
         // Blocking some resources to speed up but keeping images/scripts
         await page.setRequestInterception(true);
         page.on('request', (req) => {
-            if (['font', 'media'].includes(req.resourceType())) {
+            if (['font', 'media', 'stylesheet', 'image'].includes(req.resourceType())) {
                 req.abort();
             } else {
                 req.continue();
@@ -139,6 +139,7 @@ export async function POST(request: Request) {
 
         // Fetch HTML with comprehensive headers
         let html: string;
+        let wasPuppeteer = false;
         console.log(`[API] Fetching URL: ${url}`);
         try {
             const response = await axios.get(url, {
@@ -157,10 +158,11 @@ export async function POST(request: Request) {
             }
             console.log(`[API] Axios fetched successfully. HTML length: ${html.length}`);
         } catch (error: any) {
-            if (error.response?.status === 403) {
-                console.log('[API] Got 403 with Axios, falling back to Puppeteer...');
+            if (error.response?.status === 403 || error.message.includes('timeout')) {
+                console.log('[API] Falling back to Puppeteer...');
                 try {
                     html = await fetchWithPuppeteer(url);
+                    wasPuppeteer = true;
                     console.log(`[API] Puppeteer fetched successfully. HTML length: ${html.length}`);
                 } catch (puppeteerError: any) {
                     console.error(`[API] Puppeteer error: ${puppeteerError.message}`);
@@ -233,24 +235,26 @@ export async function POST(request: Request) {
         const targetImages = imageUrlList.slice(0, maxResults);
         console.log(`[API] Processing top ${targetImages.length} images for sizes.`);
 
-        // Fetch sizes in parallel with a limit
-        const imagesWithSizes = await Promise.all(
-            targetImages.map(async (item) => {
-                let size = 0;
-                try {
-                    const res = await axios.head(item.url, {
-                        timeout: 3000,
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                        }
-                    });
-                    size = parseInt(res.headers['content-length'] || '0', 10);
-                } catch (e: any) {
-                    // HEAD failed, try small GET for headers if size is priority
-                }
-                return { url: item.url, size };
-            })
-        );
+        // Fetch sizes in parallel with a limit, skip if we used Puppeteer to save time for Vercel
+        const imagesWithSizes = wasPuppeteer
+            ? targetImages.map(item => ({ url: item.url, size: -1 }))
+            : await Promise.all(
+                targetImages.map(async (item) => {
+                    let size = 0;
+                    try {
+                        const res = await axios.head(item.url, {
+                            timeout: 2000,
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                            }
+                        });
+                        size = parseInt(res.headers['content-length'] || '0', 10);
+                    } catch (e: any) {
+                        // HEAD failed
+                    }
+                    return { url: item.url, size };
+                })
+            );
 
         console.log(`[API] Success. Returning ${imagesWithSizes.length} images.`);
         return NextResponse.json({
@@ -258,9 +262,10 @@ export async function POST(request: Request) {
             debug: {
                 totalFound: imageUrlList.length,
                 htmlLength: html.length,
-                isCloudflare: html.toLowerCase().includes('cloudflare'),
+                isCloudflare: wasPuppeteer,
                 title: $('title').text().trim(),
-                hasImg: html.includes('<img')
+                hasImg: html.includes('<img'),
+                wasPuppeteer
             }
         });
 

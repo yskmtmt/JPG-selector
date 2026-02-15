@@ -41,7 +41,7 @@ export async function POST(request: Request) {
                 try {
                     const absoluteUrl = new URL(link, url).toString();
                     const fileName = absoluteUrl.split('/').pop() || '';
-                    
+
                     // Match last 2 digits before extension (e.g., image01.jpg)
                     const match = fileName.match(/(\d{2})\.(?:jpg|jpeg)$/i);
                     if (match) {
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
             processUrl($(element).attr('src'));
         });
 
-        console.log(`Found ${imgList.size} candidate JPGs with 2-digit suffix.`);
+        console.log(`Found ${imgList.length} candidate JPGs with 2-digit suffix.`);
 
         // Sort by the extracted number (ascending)
         imgList.sort((a, b) => a.number - b.number);

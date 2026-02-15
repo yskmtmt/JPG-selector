@@ -25,7 +25,7 @@ export default function Home() {
       const response = await axios.post('/api/images', { url });
       setImages(response.data.images);
       if (response.data.images.length === 0) {
-        setError('No JPG images found or unable to determine sizes.');
+        setError('No JPG images found on this page.');
       }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch images. Please check the URL and try again.');
@@ -102,14 +102,21 @@ export default function Home() {
                     >
                       {img.url.split('/').pop()}
                     </a>
-                    <span className="text-[10px] text-gray-400 truncate block mt-0.5">{img.url}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-gray-400 truncate max-w-[150px] sm:max-w-xs">{img.url}</span>
+                      {img.size > 0 && (
+                        <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-1 rounded whitespace-nowrap">
+                          {formatSize(img.size)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <a
                       href={img.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-1 bg-gray-100 text-gray-600 rounded text-xs hover:bg-gray-200 transition-colors"
+                      className="px-3 py-1 bg-blue-50 text-blue-600 rounded text-xs font-semibold hover:bg-blue-100 transition-colors"
                     >
                       Open
                     </a>

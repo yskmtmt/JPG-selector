@@ -85,7 +85,7 @@ export async function POST(request: Request) {
                     // Extract numerical suffix (e.g., image01.jpg -> 1)
                     const fileName = absoluteUrl.split('/').pop() || '';
                     const match = fileName.match(/(\d+)\.(?:jpg|jpeg)/i);
-                    const num = match ? parseInt(match[1], 10) : 999999; // Default to big number if no digit found
+                    const num = match ? parseInt(match[1], 10) : 999999;
 
                     // Avoid duplicates
                     if (!imageUrlList.find(item => item.url === absoluteUrl)) {
@@ -108,12 +108,29 @@ export async function POST(request: Request) {
         // Sort by extracted number (ascending)
         imageUrlList.sort((a, b) => a.number - b.number);
 
-        const images = imageUrlList.map(item => ({
-            url: item.url,
-            size: 0 // Size no longer priority, but keeping object shape
-        }));
+        // Limit results to stay within Vercel timeout limits
+        const targetImages = imageUrlList.slice(0, 20);
 
-        return NextResponse.json({ images });
+        // Fetch sizes in parallel with a limit
+        const imagesWithSizes = await Promise.all(
+            targetImages.map(async (item) => {
+                let size = 0;
+                try {
+                    const res = await axios.head(item.url, {
+                        timeout: 5000,
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                        }
+                    });
+                    size = parseInt(res.headers['content-length'] || '0', 10);
+                } catch (e) {
+                    // Fallback to 0 if HEAD fails
+                }
+                return { url: item.url, size };
+            })
+        );
+
+        return NextResponse.json({ images: imagesWithSizes });
 
     } catch (error: any) {
         console.error('API Error:', error.message);

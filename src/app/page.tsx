@@ -13,22 +13,26 @@ export default function Home() {
   const [url, setUrl] = useState('');
   const [images, setImages] = useState<ImageResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError(null);
     setImages([]);
+    setDebugInfo(null);
 
     try {
       const response = await axios.post('/api/images', { url });
       setImages(response.data.images);
+      setDebugInfo(response.data.debug);
       if (response.data.images.length === 0) {
         setError('No JPG images found on this page.');
       }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch images. Please check the URL and try again.');
+      setDebugInfo(err.response?.data?.debug);
     } finally {
       setLoading(false);
     }
@@ -77,9 +81,31 @@ export default function Home() {
           </button>
         </form>
 
-        {error && (
-          <div className="p-4 mb-6 bg-red-100 text-red-700 border border-red-200 rounded-lg text-sm">
-            {error}
+        {(error || debugInfo) && (
+          <div className="mb-8">
+            {error && (
+              <div className="p-4 bg-red-100 text-red-700 border border-red-200 rounded-lg text-sm mb-4">
+                {error}
+              </div>
+            )}
+
+            {debugInfo && (
+              <div className="p-4 bg-gray-100 border border-gray-200 rounded-lg text-[10px] font-mono text-gray-600 overflow-auto max-h-40">
+                <p className="font-bold mb-1 border-b border-gray-200 pb-1 text-gray-700">Diagnostic Info (Diagnostics):</p>
+                <div className="space-y-0.5">
+                  <p>Found: {debugInfo.totalFound || 0} imgs</p>
+                  <p>HTML: {debugInfo.htmlLength || 0} bytes</p>
+                  <p>Cloudflare: {debugInfo.isCloudflare ? 'YES' : 'No'}</p>
+                  {debugInfo.error && <p className="text-red-500">Error: {debugInfo.error}</p>}
+                  {debugInfo.sampleUrls?.length > 0 && (
+                    <div className="mt-1">
+                      <p className="font-bold">Samples:</p>
+                      {debugInfo.sampleUrls.map((u: string, i: number) => <p key={i} className="truncate">- {u}</p>)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

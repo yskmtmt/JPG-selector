@@ -184,19 +184,20 @@ export async function POST(request: Request) {
             debug: {
                 totalFound: imageUrlList.length,
                 htmlLength: html.length,
-                firstItems: targetImages.slice(0, 3).map(i => i.url)
+                isCloudflare: html.toLowerCase().includes('cloudflare'),
+                sampleUrls: imageUrlList.slice(0, 3).map(i => i.url)
             }
         });
 
     } catch (error: any) {
         console.error('[API] Fatal Error:', error.message);
-        const status = error.response?.status;
-        if (status === 403) {
-            return NextResponse.json({
-                error: 'Access Forbidden (403). The website is blocking automated access.'
-            }, { status: 403 });
-        }
-        return NextResponse.json({ error: 'Failed: ' + error.message }, { status: 500 });
+        return NextResponse.json({
+            error: error.response?.status === 403 ? 'Access Forbidden (403)' : 'Failed: ' + error.message,
+            debug: {
+                error: error.message,
+                stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            }
+        }, { status: 500 });
     }
 }
 
